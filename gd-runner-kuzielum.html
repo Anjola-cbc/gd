@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>GD Runner (Kuzielum Edition)</title>
+<style>
+  body { margin:0; background:#000; color:#fff; font-family:Arial; }
+  #info { position:absolute; top:10px; left:10px; }
+</style>
+</head>
+<body>
+
+<div id="info">
+  <div id="level">Level: 1</div>
+  <div id="score">Score: 0</div>
+</div>
+
+<canvas id="game" width="900" height="500"></canvas>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+const W = canvas.width;
+const H = canvas.height;
+const GROUND = 400;
+
+let level = 1;
+let score = 0;
+let speed = 6;
+
+let obstacles = [];
+let platforms = [];
+let boss = { active:false, x:50, y:GROUND, w:60, h:60 };
+
+const player = {
+  x:150, y:GROUND, w:40, h:40,
+  vy:0, jumping:false, doubleJump:true,
+  sliding:false, slideTimer:0
+};
+
+let keys = {};
+document.onkeydown = e => keys[e.code] = true;
+document.onkeyup = e => keys[e.code] = false;
+
+function spawnPattern() {
+  const base = W + 50;
+
+  if (level === 1) {
+    obstacles.push({ type:"spike", x:base, y:GROUND, w:30, h:30 });
+    obstacles.push({ type:"spike", x:base+80, y:GROUND, w:30, h:30 });
+  }
+
+  if (level === 2) {
+    platforms.push({ x:base, y:GROUND-120, w:100, h:15, vy:1 });
+    obstacles.push({ type:"spike", x:base+150, y:GROUND, w:30, h:30 });
+  }
+
+  if (level === 3) {
+    boss.active = true;
+    obstacles.push({ type:"block", x:base, y:GROUND-50, w:50, h:50 });
+    obstacles.push({ type:"spike", x:base+120, y:GROUND, w:30, h:30 });
+  }
+}
+
+let patternTimer = 0;
+
+function input() {
+  if (keys["ArrowUp"] || keys["KeyW"]) {
+    if (!player.jumping) {
+      player.jumping = true;
+      player.vy = -14;
+      player.doubleJump = true;
+    } else if (player.doubleJump) {
+      player.doubleJump = false;
+      player.vy = -12;
+    }
+  }
+
+  if (keys["ArrowDown"] || keys["KeyS"]) {
+    if (!player.sliding && !player.jumping) {
+      player.sliding = true;
+      player.slideTimer = 0.3;
+    }
+  }
+}
+
+function update(dt) {
+  input();
+
+  // gravity
+  player.y += player.vy;
+  player.vy += 0.8;
+
+  // ground
+  if (player.y >= GROUND) {
+    player.y = GROUND;
+    player.vy = 0;
+    player.jumping = false;
+    player.doubleJump = true;
+  }
+
+  // slide
+  if (player.sliding) {
+    player.slideTimer -= dt;
+    if (player.slideTimer <= 0) player.sliding = false;
+  }
+
+  // platforms
+  for (const p of platforms) {
+    p.y += p.vy;
+    if (p.y < GROUND-150 || p.y > GROUND-80) p.vy *= -1;
+
+    const ph = player.sliding ? player.h*0.5 : player.h;
+
+    if (
+      player.x + player.w/2 > p.x - p.w/2 &&
+      player.x - player.w/2 < p.x + p.w/2 &&
+      player.y + ph/2 >= p.y - p.h/2 &&
+      player.y + ph/2 <= p.y - p.h/2 + 10 &&
+      player.vy >= 0
+    ) {
+      player.y = p.y - p.h/2 - ph/2;
+      player.vy = 0;
+      player.jumping = false;
+      player.doubleJump = true;
+    }
+  }
+
+  // boss movement
+  if (boss.active) {
+    boss.x += (player.x - boss.x) * 0.01;
+    boss.y = player.y;
+  }
+
+  // score + level
+  score += Math.floor(speed * dt * 10);
+  if (score > 400 && level === 1) level = 2;
+  if (score > 1200 && level === 2) level = 3;
+
+  document.getElementById("score").textContent = "Score: " + score;
+  document.getElementById("level").textContent = "Level: " + level;
+
+  // spawn patterns
+  patternTimer += dt;
+  if (patternTimer > 1.2) {
+    patternTimer = 0;
+    spawnPattern();
+  }
+
+  // obstacles
+  for (let i = obstacles.length - 1; i >= 0; i--) {
+    const o = obstacles[i];
+    o.x -= speed;
+
+    if (o.x < -100) {
+      obstacles.splice(i, 1);
+      continue;
+    }
+
+    const ph = player.sliding ? player.h*0.5 : player.h;
+    const px = player.x - player.w/2;
+    const py = player.y - ph/2;
+    const ox = o.x - o.w/2;
+    const oy = o.y - o.h/2;
+
+    if (
+      px < ox + o.w &&
+      px + player.w > ox &&
+      py < oy + o.h &&
+      py + ph > oy
+    ) {
+      alert("Game Over — obstacle hit");
+      resetGame();
+    }
+  }
+
+  // boss catch
+  if (boss.active && boss.x + boss.w > player.x - player.w/2) {
+    alert("Game Over — boss caught you");
+    resetGame();
+  }
+}
+
+function draw() {
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, W, H);
+
+  // ground
+  ctx.fillStyle = "#222";
+  ctx.fillRect(0, GROUND+20, W, 5);
+
+  // player
+  ctx.fillStyle = "#00eaff";
+  const ph = player.sliding ? player.h*0.5 : player.h;
+  ctx.fillRect(player.x-player.w/2, player.y-ph/2, player.w, ph);
+
+  // boss
+  if (boss.active) {
+    ctx.fillStyle = "#ff0066";
+    ctx.fillRect(boss.x-boss.w/2, boss.y-boss.h/2, boss.w, boss.h);
+  }
+
+  // obstacles
